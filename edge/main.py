@@ -9,11 +9,13 @@ from pathlib import Path
 
 import psutil
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from edge.billing_sync import start as start_billing_sync, status as billing_sync_status, stop as stop_billing_sync, sync_once
 from edge.device_identity import identity as device_identity, persist_identity
 from edge.plans import list_plans
+from edge.portal import create_checkout as portal_checkout, portal_status, render_portal
 from edge.radio import connection_status, discover_radios, scan
 from edge.router import assign_roles, start_router, stop_router
 from edge.subscription import load as subscription_status
@@ -22,7 +24,7 @@ from edge.watchdog import save_router_config, start as start_watchdog, status as
 
 APP_NAME = "UNG-WAVE"
 MODEL = "UGANET LINK256"
-VERSION = "0.6.0"
+VERSION = "0.7.0"
 STATE_DIR = Path("/var/lib/ung-wave")
 STARTED = time.time()
 app = FastAPI(title=f"{APP_NAME} — {MODEL}", version=VERSION)
@@ -39,6 +41,10 @@ class RouterStartRequest(BaseModel):
     ap_interface: str = Field(min_length=1, max_length=32)
     ssid: str = Field(default="UGANET-LINK256", min_length=1, max_length=32)
     password: str = Field(default="UGANET256", min_length=8, max_length=63)
+
+
+class PortalCheckoutRequest(BaseModel):
+    plan: str = Field(min_length=1, max_length=64)
 
 
 def run(cmd: list[str]) -> str:
@@ -139,6 +145,26 @@ def health():
         "billing_sync": billing_sync_status(),
         "watchdog": watchdog_status(),
     }
+
+
+@app.get("/portal", response_class=HTMLResponse)
+def renewal_portal():
+    return HTMLResponse(render_portal())
+
+
+@app.get("/api/v1/portal/status")
+def renewal_portal_status():
+    return portal_status()
+
+
+@app.post("/api/v1/portal/checkout")
+def renewal_portal_checkout(request: PortalCheckoutRequest):
+    try:
+        return portal_checkout(request.plan)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/device")
