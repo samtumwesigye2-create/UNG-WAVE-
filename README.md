@@ -2,31 +2,53 @@
 
 **Wireless Access & Virtualized Edge**
 
-UNG-WAVE is the control and networking platform for the **UGANET LINK256** portable autonomous Wi-Fi gateway. External Wi-Fi is an optional backup uplink; LINK256 is designed to provide its own UGANET Wi-Fi to customers and use cellular/Ethernet/other WAN backhaul as available.
+UNG-WAVE is the control and networking platform for the **UGANET LINK256** portable autonomous Wi-Fi gateway. LINK256 provides its own UGANET Wi-Fi to customers and can use 5G/LTE, Ethernet, satellite, or external Wi-Fi backhaul.
 
 ## LINK256 software stack
 
 Current implementation provides:
 
-- network-interface and Wi-Fi radio discovery
-- autonomous gateway/AP role selection
+- autonomous UGANET access point control
+- DHCP/DNS and IPv4 NAT/firewall
+- 5G NR / LTE modem discovery through ModemManager
+- cellular connect/disconnect and modem status APIs
+- preferred WAN policy: 5G → LTE → Ethernet → satellite → Wi-Fi
 - optional upstream Wi-Fi scanning and connection control
-- UGANET access point control
-- DHCP and DNS service
-- IPv4 forwarding and NAT/firewall rules
-- persistent device/router state
-- automatic connectivity watchdog and recovery
+- persistent device/router state and automatic recovery
 - stable per-device WVE identity
 - signed subscription entitlements
 - subscription enforcement with renewal-only walled garden
 - background billing/entitlement synchronization
-- local captive renewal portal
-- hosted checkout handoff to the WAVE control plane
-- automatic Internet restoration after a verified renewal
-- hardware health reporting
-- REST management API
-- systemd boot service
-- Raspberry Pi prototype installer and acceptance test
+- local captive renewal portal and hosted checkout handoff
+- automatic Internet restoration after verified renewal
+- hardware health reporting and REST management API
+- systemd boot service and Raspberry Pi prototype installer
+
+## 5G / LTE operation
+
+LINK256 uses ModemManager (`mmcli`) for supported USB or M.2 cellular modems. A 5G-capable modem and SIM/data plan are hardware/service requirements; software alone cannot turn an LTE-only modem into 5G hardware.
+
+Normal cellular path:
+
+1. LINK256 boots and keeps `UGANET-LINK256` available independently of WAN state.
+2. ModemManager discovers the attached cellular modem.
+3. `/api/v1/cellular/modems` lists discovered modems.
+4. LINK256 can establish the data session with `/api/v1/cellular/{modem_id}/connect`.
+5. The WAN selector prefers a working 5G connection; if the modem/network falls back to LTE, LTE becomes the cellular path automatically.
+6. Ethernet, satellite, and external Wi-Fi remain lower-priority backup transports.
+7. Subscription enforcement continues to control customer Internet forwarding regardless of which WAN is active.
+
+APN values are runtime configuration and must not be committed to this public repository. SIM PINs, carrier passwords, private keys, and billing credentials must also remain outside source control.
+
+### 5G management endpoints
+
+- `/api/v1/cellular/modems`
+- `/api/v1/cellular/{modem_id}/status`
+- `/api/v1/cellular/{modem_id}/connect`
+- `/api/v1/cellular/{modem_id}/disconnect`
+- `/api/v1/wan/status`
+
+ModemManager exposes cellular access technology including LTE and 5G-class technology information, which UNG-WAVE normalizes into the WAN selection policy.
 
 ## Subscription flow
 
@@ -44,34 +66,11 @@ Required edge configuration:
 
 - `WAVE_CONTROL_URL` — public HTTPS URL of the WAVE subscription control plane.
 - `WAVE_ENTITLEMENT_PUBLIC_KEY` — trusted Ed25519 public key used to verify cloud-issued entitlements.
-- `WAVE_RENEWAL_ALLOWED_HOSTS` — comma-separated HTTPS hostnames reachable while service is expired. Include the WAVE control-plane host and all payment-host dependencies required by the configured provider.
-
-Stripe deployments normally need payment-host entries such as `checkout.stripe.com` and `js.stripe.com`; validate the final allowlist against the production Stripe checkout flow before launch.
-
-## Management endpoints
-
-Management API listens on port `8256`.
-
-Useful endpoints:
-
-- `/health`
-- `/portal`
-- `/api/v1/portal/status`
-- `/api/v1/portal/checkout`
-- `/api/v1/device`
-- `/api/v1/device/identity`
-- `/api/v1/plans`
-- `/api/v1/radios`
-- `/api/v1/uplink/status`
-- `/api/v1/router/roles`
-- `/api/v1/subscription/status`
-- `/api/v1/subscription/sync`
-- `/api/v1/billing-sync/status`
-- `/api/v1/watchdog/status`
+- `WAVE_RENEWAL_ALLOWED_HOSTS` — comma-separated HTTPS hostnames reachable while service is expired.
 
 ## Prototype deployment
 
-The Raspberry Pi remains the prototype platform. Do not run the current installer over a remote-only Wi-Fi/SSH session until its network-manager preflight/rollback hardening is completed; changing the host network manager can interrupt remote connectivity.
+The Raspberry Pi remains the prototype platform. The installer now installs ModemManager and `usb-modeswitch` for supported cellular hardware. It no longer silently replaces an existing non-NetworkManager networking stack; deliberate conversion requires `UNG_WAVE_ALLOW_NETWORK_SWITCH=1` from a local-console maintenance session.
 
 ## Hardware target
 
@@ -80,3 +79,5 @@ Prototype: Raspberry Pi / Linux
 Product family: UGANET
 
 Hardware model: LINK256
+
+5G target: USB 3 or M.2 B-Key 5G NR modem with LTE fallback and appropriate carrier-certified antennas/SIM.
