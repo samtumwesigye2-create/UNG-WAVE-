@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
+import socket
 import subprocess
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 STATE_DIR = Path("/var/lib/ung-wave")
 ENTITLEMENT_FILE = STATE_DIR / "subscription.json"
@@ -36,11 +39,6 @@ def load() -> dict:
 
 
 def save_verified_entitlement(entitlement: dict) -> None:
-    """Persist only an entitlement already verified by the future WAVE cloud client.
-
-    This function is deliberately not exposed as a public API activation endpoint.
-    Production activation must verify a server signature before calling it.
-    """
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     payload = {
         "verified": True,
@@ -52,15 +50,61 @@ def save_verified_entitlement(entitlement: dict) -> None:
     ENTITLEMENT_FILE.chmod(0o600)
 
 
+def renewal_hosts() -> set[str]:
+    hosts = {
+        value.strip()
+        for value in os.environ.get("WAVE_RENEWAL_ALLOWED_HOSTS", "").split(",")
+        if value.strip()
+    }
+    control = os.environ.get("WAVE_CONTROL_URL", "").strip()
+    if control:
+        parsed = urlparse(control)
+        if parsed.hostname:
+            hosts.add(parsed.hostname)
+    return hosts
+
+
+def renewal_ips() -> set[str]:
+    ips: set[str] = set()
+    for host in renewal_hosts():
+        try:
+            for result in socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM):
+                address = result[4][0]
+                if ":" not in address:  # current firewall path is IPv4/iptables
+                    ips.add(address)
+        except socket.gaierror:
+            continue
+    return ips
+
+
 def enforce(uplink: str, ap_interface: str) -> dict:
-    """Gate Internet forwarding while keeping local UGANET available for renewal/support."""
+    """Gate Internet forwarding while preserving a minimal renewal walled garden."""
     state = load()
     chain = "UNG_WAVE_SUBSCRIPTION"
     _run(["iptables", "-N", chain])
     _run(["iptables", "-F", chain])
-    # Ensure a single jump from FORWARD into the subscription gate.
+
     if not _run(["iptables", "-C", "FORWARD", "-i", ap_interface, "-o", uplink, "-j", chain])["ok"]:
         _run(["iptables", "-I", "FORWARD", "1", "-i", ap_interface, "-o", uplink, "-j", chain])
-    verdict = "ACCEPT" if state["active"] else "REJECT"
-    rule = _run(["iptables", "-A", chain, "-j", verdict])
-    return {"ok": rule["ok"], "internet_access": state["active"], "subscription": state}
+
+    if state["active"]:
+        rule = _run(["iptables", "-A", chain, "-j", "ACCEPT"])
+        return {
+            "ok": rule["ok"],
+            "internet_access": True,
+            "renewal_only": False,
+            "subscription": state,
+        }
+
+    allowed_ips = sorted(renewal_ips())
+    for ip in allowed_ips:
+        _run(["iptables", "-A", chain, "-p", "tcp", "-d", ip, "--dport", "443", "-j", "ACCEPT"])
+
+    reject = _run(["iptables", "-A", chain, "-j", "REJECT"])
+    return {
+        "ok": reject["ok"],
+        "internet_access": False,
+        "renewal_only": True,
+        "renewal_ips": allowed_ips,
+        "subscription": state,
+    }
