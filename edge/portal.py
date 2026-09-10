@@ -32,6 +32,8 @@ def create_checkout(plan_id: str, timeout: int = 10) -> dict:
     payload = json.dumps({
         "device_id": identity()["device_id"],
         "plan": plan_id,
+        "success_url": f"{base}/renewal/success",
+        "cancel_url": f"{base}/renewal/cancel",
     }).encode()
     request = urllib.request.Request(
         f"{base}/api/v1/billing/checkout",
