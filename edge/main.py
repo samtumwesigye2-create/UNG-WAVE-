@@ -14,10 +14,11 @@ from pydantic import BaseModel, Field
 from edge.radio import connection_status, discover_radios, scan
 from edge.router import assign_roles, start_router, stop_router
 from edge.uplink import active_connections, connect_wifi, connectivity_check, disconnect
+from edge.watchdog import save_router_config, start as start_watchdog, status as watchdog_status, stop as stop_watchdog
 
 APP_NAME = "UNG-WAVE"
 MODEL = "UGANET LINK256"
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 STATE_DIR = Path("/var/lib/ung-wave")
 STARTED = time.time()
 
@@ -100,6 +101,7 @@ def device_state() -> dict:
         "radios": discover_radios(),
         "active_connections": active_connections(),
         "router_roles": assign_roles(),
+        "watchdog": watchdog_status(),
     }
 
 
@@ -110,11 +112,12 @@ def persist_boot_state() -> None:
         (STATE_DIR / "last_boot.json").write_text(json.dumps(device_state(), indent=2))
     except PermissionError:
         pass
+    start_watchdog()
 
 
 @app.get("/health")
 def health():
-    return {"status": "ready", "system": APP_NAME, "product": MODEL, "version": VERSION, "internet": connectivity_check()}
+    return {"status": "ready", "system": APP_NAME, "product": MODEL, "version": VERSION, "internet": connectivity_check(), "watchdog": watchdog_status()}
 
 
 @app.get("/api/v1/device")
@@ -174,14 +177,35 @@ def router_start(request: RouterStartRequest):
     result = start_router(request.uplink, request.ap_interface, request.ssid, request.password)
     if not result["ok"]:
         raise HTTPException(status_code=502, detail=result)
-    return result
+    try:
+        save_router_config(request.model_dump())
+    except PermissionError:
+        pass
+    start_watchdog()
+    return {**result, "watchdog": watchdog_status()}
 
 
 @app.post("/api/v1/router/stop")
 def router_stop():
+    stop_watchdog()
     return stop_router()
 
 
 @app.get("/api/v1/router/roles")
 def router_roles():
     return assign_roles()
+
+
+@app.get("/api/v1/watchdog/status")
+def recovery_status():
+    return watchdog_status()
+
+
+@app.post("/api/v1/watchdog/start")
+def recovery_start():
+    return start_watchdog()
+
+
+@app.post("/api/v1/watchdog/stop")
+def recovery_stop():
+    return stop_watchdog()
