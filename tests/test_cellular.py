@@ -18,3 +18,34 @@ def test_connect_command_uses_simple_connect(monkeypatch):
     result = cellular.connect("0", apn="internet")
     assert result["ok"] is True
     assert calls[-1] == ["mmcli", "-m", "0", "--simple-connect=apn=internet"]
+
+
+def test_modem_status_reports_connected_state(monkeypatch):
+    payload = '{"modem.generic.state":"connected","modem.generic.access-technologies":"5gnr, lte"}'
+    monkeypatch.setattr(cellular, "_run", lambda cmd, timeout=30: {"ok": True, "stdout": payload, "stderr": "", "code": 0})
+
+    result = cellular.modem_status("0")
+
+    assert result["state"] == "connected"
+    assert result["connected"] is True
+    assert result["technology"] == "5g"
+
+
+def test_modem_status_registered_is_not_connected(monkeypatch):
+    payload = '{"modem.generic.state":"registered","modem.generic.access-technologies":"lte"}'
+    monkeypatch.setattr(cellular, "_run", lambda cmd, timeout=30: {"ok": True, "stdout": payload, "stderr": "", "code": 0})
+
+    result = cellular.modem_status("0")
+
+    assert result["state"] == "registered"
+    assert result["connected"] is False
+
+
+def test_modem_status_missing_state_is_not_connected(monkeypatch):
+    payload = '{"modem.generic.access-technologies":"lte"}'
+    monkeypatch.setattr(cellular, "_run", lambda cmd, timeout=30: {"ok": True, "stdout": payload, "stderr": "", "code": 0})
+
+    result = cellular.modem_status("0")
+
+    assert result["state"] == "unknown"
+    assert result["connected"] is False

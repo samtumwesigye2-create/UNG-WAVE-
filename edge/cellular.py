@@ -60,6 +60,25 @@ def _flatten_strings(value) -> list[str]:
     return []
 
 
+def _find_state(value) -> str:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            key_text = str(key).lower()
+            if key_text in {"modem.generic.state", "state"} or key_text.endswith(".state"):
+                if isinstance(item, str) and item.strip():
+                    return item.strip().lower()
+        for item in value.values():
+            found = _find_state(item)
+            if found != "unknown":
+                return found
+    elif isinstance(value, list):
+        for item in value:
+            found = _find_state(item)
+            if found != "unknown":
+                return found
+    return "unknown"
+
+
 def modem_status(modem_id: str) -> dict:
     result = _run(["mmcli", "-m", str(modem_id), "--output-json"])
     if not result["ok"]:
@@ -72,10 +91,13 @@ def modem_status(modem_id: str) -> dict:
     strings = _flatten_strings(data)
     tech_text = ", ".join(strings)
     technology = normalize_access_technology(tech_text)
+    state = _find_state(data)
     return {
         "ok": True,
         "modem_id": str(modem_id),
         "technology": technology,
+        "state": state,
+        "connected": state == "connected",
         "raw": data,
     }
 
