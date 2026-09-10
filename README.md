@@ -4,26 +4,49 @@
 
 UNG-WAVE is the control and networking platform for the **UGANET LINK256** portable router/repeater.
 
-## Phase 1
+## LINK256 software stack
 
-The first implementation targets Raspberry Pi/Linux hardware and provides:
+Current implementation provides:
 
 - network-interface and Wi-Fi radio discovery
-- persistent device state
+- upstream Wi-Fi scanning and connection control
+- independent uplink/AP radio roles
+- UGANET access point control
+- DHCP and DNS service
+- IPv4 forwarding and NAT/firewall rules
+- persistent device/router state
+- automatic connectivity watchdog and recovery
 - hardware health reporting
 - REST management API
-- foundation for uplink, AP, NAT, DHCP/DNS, firewall and automatic recovery
+- systemd boot service
+- Raspberry Pi installer and acceptance test
 
-## Run
+## Raspberry Pi installation
+
+LINK256 repeater mode is designed for two independent Wi-Fi interfaces: one uplink radio and one UGANET AP radio.
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn edge.main:app --host 0.0.0.0 --port 8256
+git clone https://github.com/samtumwesigye2-create/UNG-WAVE-.git
+cd UNG-WAVE-
+sudo bash deploy/install-pi.sh
 ```
 
-Then open `/health`, `/api/v1/device`, or `/api/v1/interfaces`.
+Run acceptance checks:
+
+```bash
+sudo bash /opt/ung-wave/deploy/acceptance-pi.sh
+```
+
+Management API listens on port `8256`.
+
+Useful endpoints:
+
+- `/health`
+- `/api/v1/device`
+- `/api/v1/radios`
+- `/api/v1/uplink/status`
+- `/api/v1/router/roles`
+- `/api/v1/watchdog/status`
 
 ## Hardware target
 
