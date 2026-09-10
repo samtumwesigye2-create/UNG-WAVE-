@@ -12,11 +12,12 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from edge.radio import connection_status, discover_radios, scan
+from edge.router import assign_roles, start_router, stop_router
 from edge.uplink import active_connections, connect_wifi, connectivity_check, disconnect
 
 APP_NAME = "UNG-WAVE"
 MODEL = "UGANET LINK256"
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 STATE_DIR = Path("/var/lib/ung-wave")
 STARTED = time.time()
 
@@ -27,6 +28,13 @@ class WifiConnectRequest(BaseModel):
     interface: str = Field(min_length=1, max_length=32)
     ssid: str = Field(min_length=1, max_length=32)
     password: str | None = Field(default=None, min_length=8, max_length=63)
+
+
+class RouterStartRequest(BaseModel):
+    uplink: str = Field(min_length=1, max_length=32)
+    ap_interface: str = Field(min_length=1, max_length=32)
+    ssid: str = Field(default="UGANET-LINK256", min_length=1, max_length=32)
+    password: str = Field(default="UGANET256", min_length=8, max_length=63)
 
 
 def run(cmd: list[str]) -> str:
@@ -91,6 +99,7 @@ def device_state() -> dict:
         "interfaces": interfaces(),
         "radios": discover_radios(),
         "active_connections": active_connections(),
+        "router_roles": assign_roles(),
     }
 
 
@@ -105,14 +114,7 @@ def persist_boot_state() -> None:
 
 @app.get("/health")
 def health():
-    internet = connectivity_check()
-    return {
-        "status": "ready",
-        "system": APP_NAME,
-        "product": MODEL,
-        "version": VERSION,
-        "internet": internet,
-    }
+    return {"status": "ready", "system": APP_NAME, "product": MODEL, "version": VERSION, "internet": connectivity_check()}
 
 
 @app.get("/api/v1/device")
@@ -127,7 +129,7 @@ def network_interfaces():
 
 @app.get("/api/v1/radios")
 def radios():
-    return {"radios": discover_radios()}
+    return {"radios": discover_radios(), "roles": assign_roles()}
 
 
 @app.get("/api/v1/radios/{interface}/status")
@@ -164,7 +166,22 @@ def uplink_disconnect(interface: str):
 
 @app.get("/api/v1/uplink/status")
 def uplink_status():
-    return {
-        "internet": connectivity_check(),
-        "active_connections": active_connections(),
-    }
+    return {"internet": connectivity_check(), "active_connections": active_connections()}
+
+
+@app.post("/api/v1/router/start")
+def router_start(request: RouterStartRequest):
+    result = start_router(request.uplink, request.ap_interface, request.ssid, request.password)
+    if not result["ok"]:
+        raise HTTPException(status_code=502, detail=result)
+    return result
+
+
+@app.post("/api/v1/router/stop")
+def router_stop():
+    return stop_router()
+
+
+@app.get("/api/v1/router/roles")
+def router_roles():
+    return assign_roles()
