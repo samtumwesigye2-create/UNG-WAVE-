@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 import time
 
-from edge.cloud_client import sync_entitlement
+from edge.cloud_client import register_device, sync_entitlement
 from edge.subscription import enforce, load
 from edge.watchdog import load_router_config
 
@@ -12,6 +12,7 @@ _thread: threading.Thread | None = None
 _stop = threading.Event()
 _state = {
     "running": False,
+    "last_registration": None,
     "last_sync": None,
     "last_result": None,
     "last_enforcement": None,
@@ -29,8 +30,10 @@ def status() -> dict:
 
 
 def sync_once() -> dict:
+    registration = register_device()
     result = sync_entitlement()
-    _set(last_sync=int(time.time()), last_result=result)
+    now = int(time.time())
+    _set(last_registration=registration, last_sync=now, last_result=result)
 
     config = load_router_config()
     enforcement = None
@@ -38,7 +41,12 @@ def sync_once() -> dict:
         enforcement = enforce(config["uplink"], config["ap_interface"])
         _set(last_enforcement=enforcement)
 
-    return {"sync": result, "enforcement": enforcement, "subscription": load()}
+    return {
+        "registration": registration,
+        "sync": result,
+        "enforcement": enforcement,
+        "subscription": load(),
+    }
 
 
 def _loop(interval: int) -> None:
