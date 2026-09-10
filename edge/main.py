@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from edge.billing_sync import start as start_billing_sync, status as billing_sync_status, stop as stop_billing_sync, sync_once
+from edge.cellular import connect as cellular_connect, disconnect as cellular_disconnect, list_modems as list_cellular_modems, modem_status as cellular_modem_status
 from edge.device_identity import identity as device_identity, persist_identity
 from edge.plans import list_plans
 from edge.portal import create_checkout as portal_checkout, portal_status, render_portal
@@ -20,11 +21,12 @@ from edge.radio import connection_status, discover_radios, scan
 from edge.router import assign_roles, start_router, stop_router
 from edge.subscription import load as subscription_status
 from edge.uplink import active_connections, connect_wifi, connectivity_check, disconnect
+from edge.wan import status as wan_status
 from edge.watchdog import save_router_config, start as start_watchdog, status as watchdog_status, stop as stop_watchdog
 
 APP_NAME = "UNG-WAVE"
 MODEL = "UGANET LINK256"
-VERSION = "0.7.0"
+VERSION = "0.8.0"
 STATE_DIR = Path("/var/lib/ung-wave")
 STARTED = time.time()
 app = FastAPI(title=f"{APP_NAME} — {MODEL}", version=VERSION)
@@ -45,6 +47,10 @@ class RouterStartRequest(BaseModel):
 
 class PortalCheckoutRequest(BaseModel):
     plan: str = Field(min_length=1, max_length=64)
+
+
+class CellularConnectRequest(BaseModel):
+    apn: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 def run(cmd: list[str]) -> str:
@@ -107,6 +113,8 @@ def device_state() -> dict:
         "internet": connectivity_check(),
         "interfaces": interfaces(),
         "radios": discover_radios(),
+        "cellular_modems": list_cellular_modems(),
+        "wan": wan_status(),
         "active_connections": active_connections(),
         "router_roles": assign_roles(),
         "subscription": subscription_status(),
@@ -141,6 +149,7 @@ def health():
         "product": MODEL,
         "version": VERSION,
         "internet": connectivity_check(),
+        "wan": wan_status(),
         "subscription": subscription_status(),
         "billing_sync": billing_sync_status(),
         "watchdog": watchdog_status(),
@@ -204,6 +213,40 @@ def radio_scan(interface: str):
     return {"interface": interface, "networks": scan(interface)}
 
 
+@app.get("/api/v1/cellular/modems")
+def cellular_modems():
+    return {"modems": list_cellular_modems()}
+
+
+@app.get("/api/v1/cellular/{modem_id}/status")
+def cellular_status(modem_id: str):
+    result = cellular_modem_status(modem_id)
+    if not result.get("ok"):
+        raise HTTPException(status_code=502, detail=result)
+    return result
+
+
+@app.post("/api/v1/cellular/{modem_id}/connect")
+def cellular_start(modem_id: str, request: CellularConnectRequest):
+    result = cellular_connect(modem_id, request.apn)
+    if not result.get("ok"):
+        raise HTTPException(status_code=502, detail=result)
+    return result
+
+
+@app.post("/api/v1/cellular/{modem_id}/disconnect")
+def cellular_stop(modem_id: str):
+    result = cellular_disconnect(modem_id)
+    if not result.get("ok"):
+        raise HTTPException(status_code=502, detail=result)
+    return result
+
+
+@app.get("/api/v1/wan/status")
+def preferred_wan_status():
+    return wan_status()
+
+
 @app.post("/api/v1/uplink/wifi/connect")
 def wifi_connect(request: WifiConnectRequest):
     if request.interface not in {r["interface"] for r in discover_radios()}:
@@ -224,7 +267,7 @@ def uplink_disconnect(interface: str):
 
 @app.get("/api/v1/uplink/status")
 def uplink_status():
-    return {"internet": connectivity_check(), "active_connections": active_connections()}
+    return {"internet": connectivity_check(), "active_connections": active_connections(), "wan": wan_status()}
 
 
 @app.post("/api/v1/router/start")
