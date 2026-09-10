@@ -3,13 +3,16 @@ from __future__ import annotations
 from edge.ap import start_ap, stop_ap
 from edge.network import assign_ap_address, configure_nat, start_dnsmasq, stop_dnsmasq
 from edge.radio import discover_radios
+from edge.subscription import enforce as enforce_subscription
 
 
 def assign_roles() -> dict:
     radios = [r["interface"] for r in discover_radios()]
-    if len(radios) < 2:
-        return {"ok": False, "error": "LINK256 repeater mode requires two Wi-Fi interfaces", "radios": radios}
-    return {"ok": True, "uplink": radios[0], "ap": radios[1], "radios": radios}
+    if not radios:
+        return {"ok": False, "error": "no Wi-Fi interface detected", "radios": radios}
+    if len(radios) == 1:
+        return {"ok": True, "mode": "gateway", "uplink": None, "ap": radios[0], "radios": radios}
+    return {"ok": True, "mode": "gateway+wifi-backup", "uplink": radios[0], "ap": radios[1], "radios": radios}
 
 
 def start_router(uplink: str, ap_interface: str, ssid: str, password: str) -> dict:
@@ -32,14 +35,22 @@ def start_router(uplink: str, ap_interface: str, ssid: str, password: str) -> di
         stop_ap()
         return {"ok": False, "stage": "nat", "detail": nat}
 
+    subscription = enforce_subscription(uplink, ap_interface)
+    if not subscription["ok"]:
+        stop_dnsmasq()
+        stop_ap()
+        return {"ok": False, "stage": "subscription_gate", "detail": subscription}
+
     return {
         "ok": True,
-        "status": "ready",
+        "status": "ready" if subscription["internet_access"] else "subscription_required",
         "uplink": uplink,
         "ap_interface": ap_interface,
         "ssid": ssid,
         "gateway": "10.25.6.1",
         "dhcp_range": "10.25.6.20-10.25.6.200",
+        "internet_access": subscription["internet_access"],
+        "subscription": subscription["subscription"],
     }
 
 
