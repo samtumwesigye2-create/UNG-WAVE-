@@ -11,13 +11,35 @@ if [ "${EUID}" -ne 0 ]; then
   exit 1
 fi
 
+NM_WAS_ACTIVE=0
+if systemctl is-active --quiet NetworkManager 2>/dev/null; then
+  NM_WAS_ACTIVE=1
+fi
+
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
   git python3 python3-venv python3-pip \
-  network-manager iw hostapd dnsmasq iptables iproute2 curl
+  network-manager modemmanager usb-modeswitch \
+  iw hostapd dnsmasq iptables iproute2 curl
 
-systemctl unmask NetworkManager || true
-systemctl enable --now NetworkManager
+# Avoid silently replacing the host's active networking stack during a remote install.
+# Existing NetworkManager systems continue normally. A deliberate conversion requires
+# UNG_WAVE_ALLOW_NETWORK_SWITCH=1 and should be performed from a local console.
+if [ "$NM_WAS_ACTIVE" -eq 1 ]; then
+  systemctl unmask NetworkManager || true
+  systemctl enable --now NetworkManager
+elif [ "${UNG_WAVE_ALLOW_NETWORK_SWITCH:-0}" = "1" ]; then
+  systemctl unmask NetworkManager || true
+  systemctl enable --now NetworkManager
+else
+  echo "[UNG-WAVE] NetworkManager was not active; leaving current host networking unchanged."
+  echo "[UNG-WAVE] Run from a local console with UNG_WAVE_ALLOW_NETWORK_SWITCH=1 if conversion is required."
+fi
+
+# ModemManager is independent of the customer Wi-Fi AP and manages supported 4G/5G modems.
+systemctl unmask ModemManager 2>/dev/null || true
+systemctl enable --now ModemManager
+
 # UNG-WAVE launches its own hostapd/dnsmasq instances.
 systemctl disable --now hostapd 2>/dev/null || true
 systemctl disable --now dnsmasq 2>/dev/null || true
@@ -53,6 +75,8 @@ echo
 echo "[UNG-WAVE] Hardware/API acceptance:"
 curl --fail --silent http://127.0.0.1:8256/health && echo
 curl --fail --silent http://127.0.0.1:8256/api/v1/radios && echo
+curl --fail --silent http://127.0.0.1:8256/api/v1/cellular/modems && echo
+curl --fail --silent http://127.0.0.1:8256/api/v1/wan/status && echo
 
 echo
 echo "[UNG-WAVE] LINK256 installation complete."
