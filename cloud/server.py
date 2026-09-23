@@ -1,5 +1,6 @@
-from ung_shared.system_adapter import register_frame, convert_position, link_timing
 from __future__ import annotations
+
+from frame_propagation import register_frame, convert_position, link_timing
 
 import base64
 import hmac
