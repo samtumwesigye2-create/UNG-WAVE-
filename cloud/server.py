@@ -1,3 +1,4 @@
+from ung_shared.system_adapter import register_frame, convert_position, link_timing
 from __future__ import annotations
 
 import base64
@@ -291,3 +292,13 @@ def get_entitlement(device_id: str):
     if not row:
         raise HTTPException(status_code=404, detail="no entitlement")
     return _envelope(row)
+
+@app.post("/v1/frames/register")
+def ung_frame_register(body: dict):
+    return register_frame(body["source"],body["destination"],body["matrix"],body.get("timestamp"),body.get("version","ung-frame-v1"))
+@app.post("/v1/frames/convert")
+def ung_frame_convert(body: dict):
+    return convert_position(body["position"],body["source"],body["destination"])
+@app.post("/v1/propagation/link")
+def ung_propagation_link(body: dict):
+    return link_timing(body["origin_m"],body["destination_m"],float(body.get("speed_mps",299792458.0)))
